@@ -165,6 +165,28 @@ struct _tcp_info {
 	__u32	tcpi_rcv_space;
 
 	__u32	tcpi_total_retrans;
+
+	__u64	tcpi_pacing_rate;
+	__u64	tcpi_max_pacing_rate;
+	__u64	tcpi_bytes_acked;    /* RFC4898 tcpEStatsAppHCThruOctetsAcked */
+	__u64	tcpi_bytes_received; /* RFC4898 tcpEStatsAppHCThruOctetsReceived */
+	__u32	tcpi_segs_out;	     /* RFC4898 tcpEStatsPerfSegsOut */
+	__u32	tcpi_segs_in;	     /* RFC4898 tcpEStatsPerfSegsIn */
+
+	__u32	tcpi_notsent_bytes;
+	__u32	tcpi_min_rtt;
+	__u32	tcpi_data_segs_in;	/* RFC4898 tcpEStatsDataSegsIn */
+	__u32	tcpi_data_segs_out;	/* RFC4898 tcpEStatsDataSegsOut */
+
+	__u64   tcpi_delivery_rate;
+
+	/* MLab private additions, pending better TCP_ALT_INFO extensibility */
+	__u32   tcpi_guard;
+	__u32	tcpi_synack_stamp;
+	__u64	tcpi_data_retrans;
+	__u64	tcpi_data_sent;
+	__u32	tcpi_last_progress;
+	__u32   tcpi_spurious_retrans;
 };
 
 #endif  /* linux */

@@ -1,0 +1,306 @@
+// Test fast recovery and undo: send 10 MSS, get 3 dupacks, do a
+// fast retransmit, get a DSACK for the retransmitted segment, and
+// undo the cwnd reduction.
+// Assumes initial cwnd is 10. Receiver supports SACK.
+//
+// In this variant there is reordering in the return path,
+// so that we end up getting an ACK below snd_una that
+// has the critical DSACK that tells us we need to undo.
+
+// Debugged on: Linux 3.13.0-95-generic #142-Ubuntu SMP Fri Aug 12 17:00:09 UTC 2016 x86_64 x86_64 x86_64 GNU/Linux
+
+// Establish a connection.
+0.000 socket(..., SOCK_STREAM, IPPROTO_TCP) = 3
+0.000 setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+0.000 bind(3, ..., ...) = 0
+0.000 listen(3, 1) = 0
+
+0.100 < S 0:0(0) win 32792 <mss 1000,sackOK,nop,nop,nop,wscale 7>
+0.100 > S. 0:0(0) ack 1 <mss 1460,nop,nop,sackOK,nop,wscale 7>
+0.200 < . 1:1(0) ack 1 win 257
+0.200 accept(3, ..., ...) = 4
+
+// Send 10 MSS.
+0.200 write(4, ..., 10000) = 10000
+0.200 > . 1:2001(2000) ack 1
+0.200 > . 2001:4001(2000) ack 1
+0.200 > . 4001:6001(2000) ack 1
+0.200 > . 6001:8001(2000) ack 1
+0.200 > P. 8001:10001(2000) ack 1
+0.200 %{
+# print "0.200"
+assert tcpi_ca_state == 0
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 10
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+# This is bogus: this is a relative times stamp with an uninitialized prior (e.g. from epoch, truncated)
+first_data_recv = tcpi_last_data_recv
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 50000
+assert tcpi_snd_ssthresh == 2147483647
+assert tcpi_snd_cwnd == 10
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 0
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+
+// Get 3 dupacks.
+0.300 < . 1:1(0) ack 1 win 257 <sack 1001:2001,nop,nop>
+0.300 %{
+# print "0.300"
+assert tcpi_ca_state == 1
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 10
+assert tcpi_sacked == 1
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 2
+assert tcpi_last_data_sent == 100
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 38000
+assert tcpi_snd_ssthresh == 2147483647
+assert tcpi_snd_cwnd == 10
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 0
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+0.300 < . 1:1(0) ack 1 win 257 <sack 1001:3001,nop,nop>
+0.300 < . 1:1(0) ack 1 win 257 <sack 1001:4001,nop,nop>
+// We've received 3 duplicate ACKs, so we do a fast retransmit.
+0.300 > . 1:1001(1000) ack 1
+0.300 %{
+# print "0.3001"
+assert tcpi_ca_state == 3
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 10
+assert tcpi_sacked == 3
+assert tcpi_lost == 1
+assert tcpi_retrans == 1
+assert tcpi_fackets == 4
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 22000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 7
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+// Apparently just reordering; receiver ACKs all data. Retransmit was spurious.
+0.300 < . 1:1(0) ack 4001 win 257
+0.300 %{
+# print "0.3002"
+assert tcpi_ca_state == 3
+assert tcpi_retransmits == 0
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 22000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 6
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+0.300 < . 1:1(0) ack 6001 win 257
+0.300 %{
+# print "0.3003"
+assert tcpi_ca_state == 3
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 4
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 17000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 5
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+
+}%
+0.300 < . 1:1(0) ack 8001 win 257
+0.300 %{
+# print "0.3004"
+assert tcpi_ca_state == 3
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 2
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 13000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 5
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+0.300 < . 1:1(0) ack 10001 win 257
+0.300 %{
+# print "0.3005"
+assert tcpi_ca_state == 0
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 0
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 10000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 5
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+
+// We send some more new data so we can have an ACK that races our DSACK.
+0.303 write(4, ..., 1000) = 1000
+0.303 > P. 10001:11001(1000) ack 1
+0.303 %{
+# print "0.303"
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 1
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 10000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 5
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+
+// Receiver ACKs all outstanding data.
+0.400 < . 1:1(0) ack 11001 win 257
+0.400 %{
+# print "0.400"
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 0
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 100
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 8000
+assert tcpi_snd_ssthresh == 5
+assert tcpi_snd_cwnd == 5
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+
+// Oops; there was reordering in the ACK path!
+// Now we get the DSACK for the retransmitted packet.
+// It's a DSACK on an ack below snd_una.
+0.401 < . 1:1(0) ack 10001 win 257 <sack 1:1001,nop,nop>
+0.401 %{
+# print "0.401"
+assert tcpi_retransmits == 0
+assert tcpi_unacked == 0
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 100
+assert tcpi_last_ack_sent == 0
+assert tcpi_last_ack_recv == 0
+assert tcpi_rttvar == 8000
+assert tcpi_snd_ssthresh == 2147483647
+assert tcpi_snd_cwnd == 10
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%
+
+// Verify that the DSACK caused an undo, restoring cwnd to 10.
+0.450 write(4, ..., 11000) = 11000
+0.450 > . 11001:13001(2000) ack 1
+0.450 > . 13001:15001(2000) ack 1
+0.450 > . 15001:17001(2000) ack 1
+0.450 > . 17001:19001(2000) ack 1
+0.450 > . 19001:21001(2000) ack 1
+0.450 %{
+# print "0.450"  Check all final stats
+assert tcpi_state == 1
+assert tcpi_ca_state == 0
+# Why is tcpi_retransmits zero?
+assert tcpi_retransmits == 0
+assert tcpi_probes == 0
+assert tcpi_backoff == 0
+assert tcpi_options == 6
+assert tcpi_snd_wscale == 7
+assert tcpi_rcv_wscale == 7
+assert tcpi_rto == 300000
+assert tcpi_ato == 0
+assert tcpi_snd_mss == 1000
+assert tcpi_rcv_mss == 536
+assert tcpi_unacked == 10 # origional test
+assert tcpi_sacked == 0
+assert tcpi_lost == 0
+assert tcpi_retrans == 0
+assert tcpi_fackets == 0
+assert tcpi_last_data_sent == 0
+assert tcpi_last_ack_sent == 0
+# elapsed time
+assert tcpi_last_data_recv - first_data_recv == 248
+assert tcpi_pmtu == 1500
+assert tcpi_rcv_ssthresh == 29200
+assert tcpi_rtt == 100000
+assert tcpi_rttvar == 8000
+assert tcpi_snd_ssthresh == 2147483647
+assert tcpi_snd_cwnd == 10  # origional test
+assert tcpi_advmss == 1460
+assert tcpi_reordering == 3
+assert tcpi_total_retrans == 1
+assert tcpi_rcv_rtt == 0
+assert tcpi_rcv_space == 29200
+}%

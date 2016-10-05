@@ -128,7 +128,7 @@ static void write_tcp_info(struct code_state *code,
 				   const struct _tcp_info *info,
 				   int len)
 {
-	assert(len >= sizeof(struct _tcp_info));
+	// assert(len >= sizeof(struct _tcp_info));
 
 	write_symbols(code);
 
@@ -167,6 +167,27 @@ static void write_tcp_info(struct code_state *code,
 	emit_var(code, "tcpi_rcv_rtt",		info->tcpi_rcv_rtt);
 	emit_var(code, "tcpi_rcv_space",	info->tcpi_rcv_space);
 
+	emit_var(code, "tcpi_total_retrans",	info->tcpi_total_retrans);
+	emit_var(code, "tcpi_pacing_rate",	info->tcpi_pacing_rate);
+	emit_var(code, "tcpi_max_pacing_rate",	info->tcpi_max_pacing_rate);
+	emit_var(code, "tcpi_bytes_acked",	info->tcpi_bytes_acked);
+	emit_var(code, "tcpi_bytes_received",	info->tcpi_bytes_received);
+	emit_var(code, "tcpi_segs_out",		info->tcpi_segs_out);
+	emit_var(code, "tcpi_segs_in",		info->tcpi_segs_in);
+	emit_var(code, "tcpi_notsent_bytes",	info->tcpi_notsent_bytes);
+	emit_var(code, "tcpi_min_rtt",		info->tcpi_min_rtt);
+	emit_var(code, "tcpi_data_segs_in",	info->tcpi_data_segs_in);
+	emit_var(code, "tcpi_data_segs_out",	info->tcpi_data_segs_out);
+	emit_var(code, "tcpi_delivery_rate",	info->tcpi_delivery_rate);
+
+	/* MLab private additions, pending better TCP_ALT_INFO extensibility */
+	emit_var(code, "tcpi_guard",		info->tcpi_guard);
+	emit_var(code, "tcpi_synack_stamp",	info->tcpi_synack_stamp);
+	emit_var(code, "tcpi_data_retrans",	info->tcpi_data_retrans);
+	emit_var(code, "tcpi_data_sent",	info->tcpi_data_sent);
+	emit_var(code, "tcpi_last_progress",	info->tcpi_last_progress);
+	emit_var(code, "tcpi_spurious_retrans",	info->tcpi_spurious_retrans);
+
 	emit_var_end(code);
 }
 
@@ -179,7 +200,7 @@ static void write_tcp_info(struct code_state *code,
 				   const struct _tcp_info *info,
 				   int len)
 {
-	assert(len >= sizeof(struct _tcp_info));
+ 	assert(len >= sizeof(struct _tcp_info));
 
 	write_symbols(code);
 
@@ -544,7 +565,8 @@ static void *get_data(int fd, enum code_data_t data_type, int *len)
 	case DATA_TCP_INFO:
 		opt_name = TCP_INFO;
 		data_len = sizeof(struct _tcp_info);
-		min_data_len = data_len;
+		// min_data_len = data_len;  allow version skew
+		min_data_len = 10;  // Should do sizeof(2.6 _tcp_info)
 		break;
 #endif  /* HAVE_TCP_INFO */
 	/* omitting default so compiler catches missing cases */
@@ -553,6 +575,7 @@ static void *get_data(int fd, enum code_data_t data_type, int *len)
 	assert(data_len > 0);
 	socklen_t opt_len = data_len;
 	void *data = calloc(1, data_len);
+	memset(data, '?', data_len);
 
 	int result = getsockopt(fd, SOL_TCP, opt_name, data, &opt_len);
 	if (result < 0) {
